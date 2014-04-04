@@ -1,0 +1,460 @@
+<?php
+/**
+ * @file
+ * Price-per-role main module.
+ *
+ * Allows customers with different roles to see different prices.
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function uc_flat_rate_discount_permission() {
+  return array(
+    'access price selection block' => array(
+      'title' => t('Access price selection block'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_uc_checkout_pane().
+ */
+function uc_flat_rate_discount_uc_checkout_pane() {
+  $panes['gift_wrap'] = array(
+    'callback' => 'uc_flat_rate_discount_uc_checkout_pane_callback',
+    'title' => 'Flat rate Discount',
+    'desc' => 'Provide discount options for the checkout.',
+    'weight' => -10
+  );
+
+  return $panes;
+}
+
+/**
+ * Callback for the checkout pane.
+ */
+function uc_flat_rate_discount_uc_checkout_pane_callback($op, $order, $form = NULL, &$form_state = NULL) {
+  if ($op == 'view') {
+    $description = t('Please check this box if you wish your order to be gift wrapped.');
+
+    $contents['gift_wrap'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Add Gift Wrapping') . ' (' . uc_currency_format(variable_get('uc_giftwrap_cost', 0)) . ')',
+      '#default_value' => isset($_SESSION['uc_giftwrap_checkout']) ? 1 : 0,
+      '#ajax' => array(
+        'callback' => 'uc_flat_rate_discount_update_line_items',
+        'effect' => 'slide'
+      )
+    );
+
+    return array('description' => $description, 'contents' => $contents);
+  }
+  else if ($op == 'process') {
+    if ($form_state['values']['panes']['gift_wrap']['gift_wrap'] == 1) {
+      if (!isset($_SESSION['uc_giftwrap_checkout'])) {
+        uc_order_line_item_add($order->order_id, 'gift_wrap', 'Gift Wrapping', variable_get('uc_giftwrap_cost', 0));
+        $id = db_query('SELECT MAX(line_item_id) FROM {uc_order_line_items}')->fetchField();
+        $_SESSION['uc_giftwrap_checkout'] = $id;
+      }
+    }
+    else {
+      if (isset($_SESSION['uc_giftwrap_checkout'])) {
+        uc_order_delete_line_item($_SESSION['uc_giftwrap_checkout']);
+        unset($_SESSION['uc_giftwrap_checkout']);
+      }
+    }
+  }
+}
+
+/**
+ * AJAX callback for the checkout form (allows instant updating of total when gift wrap option is chosen).
+ */
+function uc_flat_rate_discount_update_line_items($form, $form_state) {
+  $commands = array();
+  if (isset($form['panes']['payment']['line_items'])) {
+    $commands[] = ajax_command_replace('#line-items-div', drupal_render($form['panes']['payment']['line_items']));
+    $commands[] = ajax_command_prepend('#line-items-div', theme('status_messages'));
+  }
+
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+
+/**
+ * Implements hook_line_item().
+ */
+function uc_flat_rate_discount_uc_line_item() {
+  $items[] = array(
+    'id' => 'fr_discount',
+    'title' => t('Flat Rate discount'),
+    'weight' => 2,
+    'default' => FALSE,
+    'stored' => TRUE,
+    'add_list' => TRUE,
+    'calculated' => TRUE,
+    'callback' => 'uc_giftwrap_uc_line_item_gift_wrap',
+    'display_only' => FALSE
+  );
+  return $items;
+}
+/**
+ * Callback for line item type.
+ */
+function uc_giftwrap_uc_line_item_gift_wrap($op, $arg1) {
+  // Required callback for hook_uc_line_item()
+}
+
+/**
+ * Implements hook_uc_checkout_complete().
+ */
+function uc_giftwrap_uc_checkout_complete($order, $account) {
+  if (isset($_SESSION['uc_giftwrap_checkout'])) {
+    unset($_SESSION['uc_giftwrap_checkout']);
+  }
+}
+/**
+ * Implements hook_menu().
+ */
+function uc_flat_rate_discount_menu() {
+  $items = array();
+  $items['admin/store/settings/flat_rates/flat_rate_discount'] = array(
+		'title' => 'Add Flat Rate',
+		'description' => 'Configure discount in direct rate or percantage for each product settings.',
+		'access arguments' => array('administer uc_flat_rate_discount'),
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('uc_flat_rate_discount_option_form'),
+		'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/store/settings/flat_rates/flat_rate_discount/%id/edit'] = array(
+		'title' => 'Edit Flat Rate', // The link text
+		'description' => 'link to edit flat rate discount',
+		'access arguments' => array('administer uc_flat_rate_discount'),
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('uc_flat_rate_discount_option_form', 1),
+		'type' => MENU_NORMAL_ITEM,
+   );
+   $items['admin/store/settings/flat_rates/flat_rate_discount/%id/delete'] = array(
+		'title' => 'Delete Flat Rate', // The link text
+		'description' => 'link to delete flat rate discount',
+		'access arguments' => array('administer uc_flat_rate_discount'),
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('uc_flat_rate_discount_option_form', 1),
+		'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/store/settings/flat_rates'] = array(
+		'title' => 'Flat Rate Discount',
+		'description' => 'Configure discount in direct rate or percantage for each product settings.',
+		'access arguments' => array('administer store'),
+		'page callback' => 'uc_flat_rate_manage',
+		'type' => MENU_NORMAL_ITEM,
+  );
+ 
+  return $items;
+}
+
+
+/**
+ * Flat rate discount form 
+ * **/
+function uc_flat_rate_discount_option_form($form, &$form_state) {
+  $arg5 = arg(5);
+  $arg6 = arg(6);
+   $dateformat = 'Y-m-d';
+	 $timestamp = time(); // <- as example, usually this is a db value  
+	 $dbv = $timestamp;
+	 $value = NULL;
+	//construct date, if db value is empty, default to now
+	  if(isset($arg5) && $arg6 == "edit"){
+		  drupal_set_title(t('Edit flat rate discount')); 
+			$flat_rate_data = get_flat_rate($arg5);
+			$uc_forms = uc_product_types();
+			$options = array();
+			  foreach($uc_forms as $key => $value){
+					$options[$value] = $value;
+			  }
+	  }else{
+		$uc_forms = uc_product_types();
+		$options = array();
+		  foreach($uc_forms as $key => $value){
+			  $exist = get_flat_rate_by_type($value);
+			  if($exist == ""){
+				$options[$value] = $value;
+			  }
+		  }
+	  }
+	  if(isset($arg5) && $arg6 == "delete"){ 
+		  drupal_set_title(t('Delete flat rate discount')); 
+		    $form['flat_id'] = array(
+				'#type' => 'hidden', 
+				'#title' => t('confirm'), 
+				'#default_value' => 1,
+			 );
+			$form['flat_id'] = array(
+				'#type' => 'hidden', 
+				'#title' => t('id'), 
+				'#size' => 15, 
+				'#maxlength' => 8,
+				'#default_value' => $arg5,
+			 );
+			 $form['actions']['submit'] = array(
+				'#type' => 'submit',
+				'#submit' => array('flat_callback_for_delete_button'),
+				'#value' => t('Delete'),
+			 );
+			 $form['actions']['cancel'] = array(
+				'#type'   => 'submit',
+				'#value'  => t('Cancel'),
+				'#submit' => array('flat_callback_for_cancel_button'),
+				'#limit_validation_errors' => array(),
+			 );
+	  }else{
+		
+		  $form['flat_id'] = array(
+			'#type' => 'hidden', 
+			'#title' => t('id'), 
+			'#size' => 15, 
+			'#maxlength' => 8,
+			'#default_value' => $flat_rate_data->id,
+		  );
+		  $form['flat_rate'] = array(
+			'#type' => 'textfield', 
+			'#title' => t('Discount'), 
+			'#element_validate' => array('element_validate_integer_positive'),
+			'#size' => 15, 
+			'#maxlength' => 8,
+			'#default_value' => $flat_rate_data->fd_rate,
+			'#field_suffix' => '%',
+			'#description' => t('Enter only prositive interger value less than 100.'), 
+			'#required' => TRUE,
+		  );
+		  $form['selected_type'] = array(
+			  '#type' => 'select',
+			  '#title' => t('Selected Type'),
+			  '#options' => $options,
+			  '#default_value' => $flat_rate_data->content_type,
+			  //'#default_value' => $category['selected'],
+			  '#description' => t('Select a type where you want to add flat rate.'),
+			  '#required' => TRUE,
+		  );
+		  $form['till_date'] = array(
+			'#type' => 'date',
+			'#date_year_range' => '-3:+3',
+			'#title' => 'Till Date',
+			'#required' => TRUE,
+		  );
+		   if($flat_rate_data->fd_date){
+			  $form['till_date']['#default_value'] = array(
+				  'year' => date('Y', $flat_rate_data->fd_date),
+				  'month' => date('n', $flat_rate_data->fd_date),
+				  'day' => date('j', $flat_rate_data->fd_date),
+				);
+			}
+		  $form['buttons']['submit'] = array(
+			'#type' => 'submit',
+			'#value' => t('Save configuration'),
+		  );
+	 
+	}
+ return $form;	
+}
+
+/***
+ * Cancle form submission function
+ * ***/
+function flat_callback_for_cancel_button($form, &$form_state){
+	global $base_url;
+	$url = $base_url.'/admin/store/settings/flat_rates';
+	drupal_goto($url);
+}
+
+/****
+ * Delete flat rate form the database fuction 
+ * **/
+function flat_callback_for_delete_button($form, &$form_state){
+	global $base_url;
+		$num_deleted = db_delete('uc_flat_rate_discount_percentage')
+					  ->condition('id', $form_state['input']['flat_id'])
+					  ->execute();
+		drupal_set_message(t('Flat Rate has been deleted successfully.'));
+		$url = $base_url.'/admin/store/settings/flat_rates';
+	drupal_goto($url);
+}
+
+/****
+ * Flat rate submit function
+ * **/
+function uc_flat_rate_discount_option_form_submit($form, &$form_state){
+	extract($form_state['input']['till_date']);
+    $date_stamp = mktime(23, 59, 59, $month, $day, $year);
+	global $base_url;
+	if($form_state['input']['flat_id']){
+		 db_update('uc_flat_rate_discount_percentage')
+			->fields(array(
+			  'fd_rate' =>  $form_state['input']['flat_rate'],
+				'content_type' =>  $form_state['input']['selected_type'],
+				'fd_date' => $date_stamp,
+			))
+			->condition('id', $form_state['input']['flat_id'])
+			->execute();
+			drupal_set_message(t("Flat rate has been updated."));
+	}else{
+		db_insert('uc_flat_rate_discount_percentage')
+		  ->fields(array('fd_rate', 'content_type', 'fd_date'))
+		  ->values(array(
+			'fd_rate' =>  $form_state['input']['flat_rate'],
+			'content_type' =>  $form_state['input']['selected_type'],
+			'fd_date' => $date_stamp,
+		  ))->execute();
+		drupal_set_message(t("Flat rate has been added."));
+	}
+	
+	drupal_goto($base_url.'/admin/store/settings/flat_rates');
+}
+
+/****
+ * Function for the flat rate discount listing.
+ * ***/
+function uc_flat_rate_manage(){
+	$output = "";
+	global $base_url;
+	$output.='<input type="button" class="form-submit" value="Add Flat Rate" onclick="location.href=&quot;'.$base_url.'/admin/store/settings/flat_rates/flat_rate_discount?destination=admin/store/settings/flat_rates&quot;";>';
+	$header = array('Flat Rate', 'Content Type', 'Expire Date', 'Edit', 'DELETE');
+	  $rows = array();
+	  $results = db_query("SELECT * FROM {uc_flat_rate_discount_percentage} ORDER BY id DESC");
+	  foreach($results as $data) {
+		$date = gmdate('Y-m-d', $data->fd_date);
+		$rows[] = array(
+			  $data->fd_rate,
+			  $data->content_type,
+			  $date,
+			  '<a href="'.$base_url.'/admin/store/settings/flat_rates/flat_rate_discount/'.$data->id.'/edit">edit</a>',
+			  '<a href="'.$base_url.'/admin/store/settings/flat_rates/flat_rate_discount/'.$data->id.'/delete">delete</a>',
+			);
+	   }
+	   //$rows[] = $row;
+	 $output.= theme_table(
+		array(
+		  "header" => $header,
+		  "rows" => $rows,
+		  "attributes" => array(),
+		  "sticky" => true, // Table header will be sticky
+		  "caption" => "",
+		  "colgroups" => array(),
+		  "empty" => t("Table has no record!") // The message to be displayed if table is empty
+		)
+	  );
+return $output;
+}
+
+
+/**
+ * Implements hook_add_to_cart().
+ *
+ * Check time and show notification.
+ */
+function uc_flat_rate_discount_uc_add_to_cart($nid, $qty, $data) {
+	$load_product = node_load($nid);
+	$fr_discount = get_flat_discount($load_product->type);
+	if (REQUEST_TIME <= $fr_discount->fd_date) {
+	  if (intval($fr_discount->fd_rate) > 0) {
+		$cal_discount = get_uc_flat_rate_discount($fr_discount->fd_rate, $load_product->price, $qty);
+		drupal_set_message(t('Just nu får du %discount SEK rabatt när du köper %title.', array('%title' => $load_product->title, '%discount' => $cal_discount)));
+	  }
+	}
+}
+
+/**
+ * Implements hook_form_alter().
+ * Alter the cart form to show the discount.
+ */
+function uc_flat_rate_discount_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'uc_cart_view_form') {
+    foreach ($form['items'] as $key => &$val) {   
+      if (is_numeric($key)) {
+        if (isset($val['#entity'])) {
+          $fr_discount = get_flat_discount($val['#entity']->type);
+          if (count($fr_discount->id) > 0) {
+            if ($fr_discount->fd_date >= REQUEST_TIME && intval($fr_discount->fd_rate) > 0) {
+              $discount = get_uc_flat_rate_discount($fr_discount->fd_rate, $val['#entity']->price,  $val['#entity']->qty);
+              $discountText = array(
+                t('Flat Rate: !discount off at checkout', array('!discount' => $discount)),
+              );
+              $val['desc']['#markup'] .= theme('item_list', array(
+                'items' => $discountText,
+                'title' => NULL,
+                'type' => 'ul',
+                'attributes' => array('class' => 'fr-discount-teaser'),
+              ));
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/****
+ * Get flat rate discount from the flat rate id
+ * **/
+function get_flat_rate($id){
+	$query = db_query("SELECT * from {uc_flat_rate_discount_percentage} WHERE id=$id")->fetchObject();
+return $query;
+}
+
+/****
+ * Flat rate discount check
+ * **/
+function get_flat_rate_by_type($type){
+	$id = db_query("SELECT id from {uc_flat_rate_discount_percentage} WHERE content_type=:typo", array('typo' => $type))->fetchField();
+return $id;
+}
+
+/****
+ * Get flat rate discount from the content type 
+ * **/
+function get_flat_discount($type){
+	$discount = db_query("SELECT * from {uc_flat_rate_discount_percentage} WHERE content_type=:typo", array('typo' => $type))->fetchObject();
+return $discount;
+}
+
+/****
+ * Calculate flat rate discount 
+ * **/
+function get_uc_flat_rate_discount($fd_rate, $pro_price, $qty){
+	$fr_cal_discount_rate = ($pro_price * $fd_rate) / 100 ;
+	$fr_cal_discount = $fr_cal_discount_rate * $qty;
+return $fr_cal_discount;
+}
+
+/**
+ * Implements hook_order().
+ *
+ * Adds the line item discount for earlybird discounts.
+ */
+function uc_flat_rate_discount_uc_order($op, &$arg1, $arg2) {
+	if ($op == 'save') {
+    $type = 'fr_discount';
+    foreach ($arg1->line_items as $key => $line_item) {
+      if ($line_item['type'] == $type) {
+        uc_order_delete_line_item($line_item['line_item_id']);
+      }
+    }
+
+    db_delete('uc_order_line_items')
+      ->condition('order_id', $arg1->order_id)
+      ->condition('type', $key)
+      ->execute();
+
+    $discount = 0;
+    $numDiscounts = 0;
+    foreach ($arg1->products as $product) {
+	  $load_odr = node_load($product->nid);
+	  $gr_disObject = get_flat_discount($load_odr->type);
+      $discount = get_uc_flat_rate_discount($gr_disObject->fd_rate, $product->price, $product->qty);
+      if ($discount < 0) {
+        uc_order_line_item_add($arg1->order_id, $type, 'Flat rate discount', $discount * $product->qty, NULL, NULL);
+      }
+    }
+  }
+}
