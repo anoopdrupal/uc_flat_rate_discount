@@ -1,0 +1,44 @@
+uc_falt_rate_discount module
+------------------------
+by Anoop Singh, Xicom Technologies
+
+This modules allows an administrator to add extra flat rate discount in Ubercart e-commerce suite. These
+checkbox field will be available during checkout process and in order handling
+pages.
+
+With this module an administrator has a flexible way to define one or
+more flat rate discount for all product content types.
+/admin/store/settings/flat_rates
+
+This checkbox field will appear to customers during the checkout process and
+will be saved at the end of this process on a separate database table for
+later use.
+
+
+DEPENDENCIES
+------------
+This module requires Ubercart 7.x-3.2 or higher.
+
+INSTALLATION
+------------
+  * Copy the module's directory to your modules directory
+    and activate it.
+  * Go to /admin/store/settings/flat_rates
+    for defining discount for any content type
+
+The module will add two tables: uc_extra_fields and uc_extra_fields_values.
+
+ABOUT THE DISCOUNT 
+------------
+  * There will be a checkkbox field in the checkout page to add this discount to your order .
+
+
+See also http://drupal.org/node/1861720
+
+VIEWS INTEGRATION
+------------
+Flat Rate Discount can be added to Ubercart Order based views.
+
+MAINTAINERS
+------------
+Anoop Singh
