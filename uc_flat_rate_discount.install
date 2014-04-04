@@ -1,0 +1,60 @@
+<?php
+/**
+ * @file
+ * Install/deinstall hooks for uc_price_per_role.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+ 
+function uc_flat_rate_discount_schema() {
+
+    $schema['uc_flat_rate_discount_percentage'] = array(
+
+            'description' => 'Storing content migration info from Joomla.',
+            'fields' => array(
+			  'id' => array(
+					'description' => 'id',
+					'type' => 'serial',
+			  ),
+			 'fd_rate' => array(
+				'type' => 'int',
+				'not null' => TRUE,
+				'default' => 0,
+			  ),
+			 'content_type' => array(
+				  'description' => 'content type',
+				  'type' => 'varchar',
+				  'not null' => TRUE,
+				  'length' => 255,
+			 ),
+			 'fd_date' => array(
+				'type' => 'int',
+				'not null' => TRUE,
+				'default' => 0,
+				'length' => 255,
+			  ),
+            ),
+            'primary key' => array('id'),
+            'indexes' => array(
+                    'id' => array('id'),
+            ),
+    );
+return $schema;
+}
+
+/***
+ * hook_install function to create table 
+ * */
+function uc_flat_rate_discount_install() {
+    // update the alter option of 'user/logout' to TRUE (menu_save invokes necessary hooks)
+ 
+}
+
+/***
+ * hook_uninstall function to delete table 
+ * */
+function uc_flat_rate_discount_uninstall() {
+    drupal_uninstall_schema('uc_flat_rate_discount');
+}
